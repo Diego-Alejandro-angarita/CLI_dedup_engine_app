@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use comfy_table::{Attribute, Cell, Color, Table};
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -105,6 +107,16 @@ async fn save_metrics(metrics: &Metrics) -> std::io::Result<()> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Print ASCII Banner
+    println!("{}", r#"
+    ____           __             ______            _          
+   / __ \___  ____/ /_  ______   / ____/___  ____ _(_)___  ___ 
+  / / / / _ \/ __  / / / / __ \ / __/ / __ \/ __ `/ / __ \/ _ \
+ / /_/ /  __/ /_/ / /_/ / /_/ // /___/ / / / /_/ / / / / /  __/
+/_____/\___/\__,_/\__,_/ .___//_____/_/ /_/\__, /_/_/ /_/\___/ 
+                      /_/                 /____/               
+"#.cyan().bold());
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -149,7 +161,16 @@ async fn main() -> std::io::Result<()> {
             let mut new_chunks = 0;
             let mut dedup_chunks = 0;
 
-            println!("🚀 Backing up '{}'...", file);
+            println!("\n{} Backing up '{}'...", "🚀".cyan().bold(), file.bold());
+
+            let pb = ProgressBar::new(metadata.len());
+            pb.set_style(
+                ProgressStyle::with_template(
+                    "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})",
+                )
+                .unwrap()
+                .progress_chars("#>-"),
+            );
 
             loop {
                 let bytes_read = source_file.read(&mut buffer).await?;
@@ -157,6 +178,7 @@ async fn main() -> std::io::Result<()> {
                     break;
                 }
 
+                pb.inc(bytes_read as u64);
                 metrics.logical_bytes += bytes_read as u64;
 
                 let mut chunk_data = buffer;
@@ -194,12 +216,31 @@ async fn main() -> std::io::Result<()> {
                 recipe_file.write_all(recipe_entry.as_bytes()).await?;
             }
 
+            pb.finish_and_clear();
             save_metrics(&metrics).await?;
             
             let saved_mb = (dedup_chunks * BLOCK_SIZE) as f64 / (1024.0 * 1024.0);
-            println!("{} Backup complete!", "✅".green());
-            println!("   New chunks: {}", new_chunks);
-            println!("   Deduplicated: {} (Saved {:.2} MB)", dedup_chunks, saved_mb);
+            println!("{} Backup complete!", "✅".green().bold());
+            
+            let mut table = Table::new();
+            table
+                .set_header(vec![
+                    Cell::new("Metric").add_attribute(Attribute::Bold).fg(Color::Cyan),
+                    Cell::new("Value").add_attribute(Attribute::Bold).fg(Color::Cyan),
+                ])
+                .add_row(vec![
+                    Cell::new("New chunks"),
+                    Cell::new(new_chunks.to_string()).fg(Color::Yellow),
+                ])
+                .add_row(vec![
+                    Cell::new("Deduplicated chunks"),
+                    Cell::new(dedup_chunks.to_string()).fg(Color::Green),
+                ])
+                .add_row(vec![
+                    Cell::new("Space Saved"),
+                    Cell::new(format!("{:.2} MB", saved_mb)).add_attribute(Attribute::Bold).fg(Color::Green),
+                ]);
+            println!("\n{table}");
         }
         Commands::Restore { recipe, destination } => {
             init_repo_if_needed().await?;
@@ -223,13 +264,23 @@ async fn main() -> std::io::Result<()> {
             let num_hashes = hashes.len();
 
             let mut dest_file = File::create(&destination).await?;
-            println!("📥 Restoring to '{}'...", destination);
+            println!("\n{} Restoring to '{}'...", "📥".cyan().bold(), destination.bold());
+
+            let pb = ProgressBar::new(num_hashes as u64);
+            pb.set_style(
+                ProgressStyle::with_template(
+                    "{spinner:.green} [{elapsed_precise}] [{wide_bar:.green/blue}] {pos}/{len} chunks ({eta})",
+                )
+                .unwrap()
+                .progress_chars("=>-"),
+            );
 
             for (i, hash) in hashes.iter().enumerate() {
                 let chunk_path = repo_dir.join("chunks").join(hash);
                 
                 if !chunk_path.exists() {
-                    println!("{} Corrupted backup: Missing chunk {}", "❌".red(), hash);
+                    pb.finish_and_clear();
+                    println!("{} Corrupted backup: Missing chunk {}", "❌".red().bold(), hash);
                     return Ok(());
                 }
 
@@ -242,9 +293,11 @@ async fn main() -> std::io::Result<()> {
                 }
 
                 dest_file.write_all(&chunk_data).await?;
+                pb.inc(1);
             }
 
-            println!("{} Restore complete!", "✅".green());
+            pb.finish_and_clear();
+            println!("{} Restore complete!", "✅".green().bold());
         }
         Commands::Stats => {
             init_repo_if_needed().await?;
@@ -261,15 +314,30 @@ async fn main() -> std::io::Result<()> {
                 0
             };
 
-            println!("\nRepository size: {:.0} MB / 1 GB", repo_mb);
-            println!("Space saved: {:.1} GB ({}%)", saved_gb, pct);
+            let mut table = Table::new();
+            table
+                .set_header(vec![
+                    Cell::new("Metric").add_attribute(Attribute::Bold).fg(Color::Cyan),
+                    Cell::new("Value").add_attribute(Attribute::Bold).fg(Color::Cyan),
+                ])
+                .add_row(vec![
+                    Cell::new("Repository size"),
+                    Cell::new(format!("{:.0} MB / 1 GB", repo_mb)).fg(Color::Yellow),
+                ])
+                .add_row(vec![
+                    Cell::new("Space saved"),
+                    Cell::new(format!("{:.1} GB ({}%)", saved_gb, pct)).fg(Color::Green),
+                ]);
+
+            println!("\n{}", "📊 Repository Statistics".bold().cyan());
+            println!("{table}");
 
             // Warning at 80% capacity (800MB)
             if repo_mb > 800.0 {
-                println!("\n{} You are approaching the free plan limit", "⚠".yellow());
-                println!("Upgrade to Pro for unlimited storage");
+                println!("\n{} {}", "⚠".yellow().bold(), "You are approaching the free plan limit".yellow());
+                println!("{}", "Upgrade to Pro for unlimited storage".italic());
             } else {
-                println!("\nUpgrade to Pro for unlimited storage and compression");
+                println!("\n{}", "✨ Upgrade to Pro for unlimited storage and compression".italic().dimmed());
             }
         }
     }
