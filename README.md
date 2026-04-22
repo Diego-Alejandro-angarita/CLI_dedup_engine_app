@@ -19,12 +19,12 @@ You can run Dedup CLI via Docker or by building it from source.
 
 Build the image:
 ```bash
-docker build -t dedup-cli .
+docker build -t dedup-engine .
 ```
 
 Run the container (mounting your local directory to process files and a persistent volume for the repository):
 ```bash
-docker run --rm -v $(pwd):/workspace -v dedup_repo:/home/dedupuser/.dedup -w /workspace dedup-cli backup my_file.txt
+docker run --rm -v $(pwd):/workspace -v dedup_repo:/home/dedupuser/.dedup-engine -w /workspace dedup-engine backup my_file.txt
 ```
 
 ### Option 2: Build from Source
@@ -33,7 +33,7 @@ Ensure you have Rust and Cargo installed, then run:
 ```bash
 cargo build --release
 # Move the binary to your path
-sudo mv target/release/dedup /usr/local/bin/
+sudo mv target/release/dedup-engine /usr/local/bin/
 ```
 
 ## 💻 Usage
@@ -42,21 +42,21 @@ sudo mv target/release/dedup /usr/local/bin/
 The first time you run this, it will automatically initialize the repository at `~/.dedup`.
 
 ```bash
-dedup backup database_dump.sql
+dedup-engine backup database_dump.sql
 ```
 
 ### 2. View your storage stats
 Check how much space you have saved through deduplication.
 
 ```bash
-dedup stats
+dedup-engine stats
 ```
 
 ### 3. Restore a file
 Rebuild your original file from its recipe.
 
 ```bash
-dedup restore database_dump.sql ./restored_db.sql
+dedup-engine restore database_dump.sql ./restored_db.sql
 ```
 
 ## 💎 Free Tier Limits
@@ -68,4 +68,4 @@ Dedup CLI Community Edition is completely free forever with the following limits
 - **Unlimited backups** as long as storage permits.
 - **Local usage only**.
 
-*Need to backup multi-gigabyte databases or compress your backups? Run `dedup backup file.txt --compress` to see how to upgrade to the Pro version!*
+*Need to backup multi-gigabyte databases or compress your backups? Run `dedup-engine backup file.txt --compress` to see how to upgrade to the Pro version!*

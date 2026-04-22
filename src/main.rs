@@ -14,7 +14,7 @@ const FREE_MAX_FILE_SIZE: u64 = 300 * 1024 * 1024; // 300 MB
 const FREE_MAX_REPO_SIZE: u64 = 1024 * 1024 * 1024; // 1 GB
 
 #[derive(Parser)]
-#[command(name = "dedup", about = "Smart Deduplication Backup CLI", version = "1.0")]
+#[command(name = "dedup-engine", about = "Smart Deduplication Backup CLI", version = "1.0")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

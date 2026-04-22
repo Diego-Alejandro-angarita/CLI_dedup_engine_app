@@ -21,6 +21,6 @@ USER dedupuser
 ENV HOME=/home/dedupuser
 WORKDIR /home/dedupuser
 
-COPY --from=builder /usr/src/app/target/release/dedup /usr/local/bin/dedup
+COPY --from=builder /usr/src/app/target/release/dedup-engine /usr/local/bin/dedup-engine
 
-ENTRYPOINT ["dedup"]
+ENTRYPOINT ["dedup-engine"]
