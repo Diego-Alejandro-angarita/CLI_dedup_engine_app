@@ -18,7 +18,7 @@ Everything runs locally, so your data never leaves your machine.
 
 ## 🛠 Installation
 
-You can run Dedup CLI via Docker or by building it from source.
+You can test Dedup CLI quickly with Docker or build it locally from source.
 
 ### Option 1: Using Docker (Recommended for testing)
 
@@ -74,6 +74,7 @@ Space saved:       94.8%
 Chunks:
 - New:     210
 - Reused:  3840
+```
 
 ## 💎 Free Tier Limits
 
