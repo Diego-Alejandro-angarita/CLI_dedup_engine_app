@@ -30,27 +30,100 @@ If your files change gradually over time, Dedup CLI can help you store far less 
 
 ## 🛠 Installation
 
-You can test Dedup CLI quickly with Docker or build it locally from source.
+You can install Dedup CLI locally on macOS, Linux, or Windows using Cargo. This avoids committing build artifacts and does not require copying the `target/` folder into the repository.
 
-### Option 1: Using Docker (Recommended for testing)
+### Requirements
+
+Install Rust and Cargo first:
+
+- **macOS / Linux:** `curl https://sh.rustup.rs -sSf | sh`
+- **Windows:** install `rustup-init.exe` from [rustup.rs](https://rustup.rs)
+
+Restart your terminal after installation, then verify:
+
+```bash
+rustc --version
+cargo --version
+```
+
+### Option 1: Install the CLI locally with Cargo
+
+From the project root, run:
+
+```bash
+cargo install --path .
+```
+
+This installs the binary as `dedup-engine`.
+
+Verify the installation:
+
+```bash
+dedup-engine --help
+```
+
+### PATH notes by operating system
+
+Cargo installs binaries into its local bin directory. If `dedup-engine` is not found after installation, add the correct directory to your `PATH`.
+
+#### macOS and Linux
+
+Cargo usually installs to:
+
+```bash
+~/.cargo/bin
+```
+
+Add this to your shell profile such as `~/.bashrc`, `~/.zshrc`, or `~/.profile`:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+Reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+If you use `zsh`, reload `~/.zshrc` instead.
+
+#### Windows
+
+Cargo usually installs binaries to:
+
+```powershell
+$env:USERPROFILE\.cargo\bin
+```
+
+If needed, add that directory to your user `Path` environment variable, then reopen PowerShell or Command Prompt.
+
+You can verify with:
+
+```powershell
+dedup-engine.exe --help
+```
+
+### Option 2: Run without installing
+
+If you only want to test the CLI from source:
+
+```bash
+cargo run -- backup my_file.txt
+```
+
+### Option 3: Using Docker
 
 Build the image:
+
 ```bash
 docker build -t dedup-engine .
 ```
 
 Run the container (mounting your local directory to process files and a persistent volume for the repository):
+
 ```bash
 docker run --rm -v $(pwd):/workspace -v dedup_repo:/home/dedupuser/.dedup-engine -w /workspace dedup-engine backup my_file.txt
-```
-
-### Option 2: Build from Source
-
-Ensure you have Rust and Cargo installed, then run:
-```bash
-cargo build --release
-# Move the binary to your path
-sudo mv target/release/dedup-engine /usr/local/bin/
 ```
 
 ## 💻 Usage
