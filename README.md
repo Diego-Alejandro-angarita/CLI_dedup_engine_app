@@ -1,15 +1,20 @@
 # 🚀 Dedup CLI
 
-**Dedup CLI** is a blazingly fast, block-level deduplication backup tool built in Rust. It runs locally, ensuring complete data privacy while drastically reducing your storage footprint.
+**Reduce your storage usage by storing only what actually changed.**
 
-It works by splitting your files into microscopic 4KB blocks and calculating a lightning-fast cryptographic hash (FNV-1a 64-bit) for each block. It only stores the blocks it hasn't seen before.
+Dedup CLI is a fast local backup tool built in Rust that removes duplicate data at the block level.
+
+Instead of saving full files over and over again, it stores only new blocks, which makes it especially useful for logs, dumps, and files that grow over time.
+
+Everything runs locally, so your data never leaves your machine.
 
 ## 📦 Features
 
-- **Block-Level Deduplication:** Never save the same data twice.
-- **Privacy First:** Everything runs and is stored locally in your `~/.dedup` directory. No cloud API required.
-- **Lightning Fast:** Built in Rust with asynchronous I/O.
-- **Easy Recovery:** Rebuild files byte-for-byte from lightweight `.recipe` files.
+- **Save storage space:** Only new blocks are stored.
+- **Local-first:** All data stays on your machine in `~/.dedup`.
+- **Fast backups:** Built in Rust for performance.
+- **Exact restore:** Rebuild files byte-for-byte from lightweight recipe files.
+- **Works well with growing files:** Especially useful for logs, dumps, and repeated backups.
 
 ## 🛠 Installation
 
@@ -58,6 +63,17 @@ Rebuild your original file from its recipe.
 ```bash
 dedup-engine restore database_dump.sql ./restored_db.sql
 ```
+
+## 📊 Example Output
+
+```text
+Original size:     120 MB
+Stored size:       6.2 MB
+Space saved:       94.8%
+
+Chunks:
+- New:     210
+- Reused:  3840
 
 ## 💎 Free Tier Limits
 
