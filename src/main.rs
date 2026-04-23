@@ -162,7 +162,7 @@ async fn init_repo_if_needed(repo_dir: &PathBuf) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn load_metrics(repo_dir: &PathBuf) -> RepoMetrics {
+async fn load_metrics(repo_dir: &Path) -> RepoMetrics {
     let path = repo_dir.join("metrics.json");
     if path.exists() {
         if let Ok(data) = fs::read_to_string(&path).await {
@@ -174,7 +174,7 @@ async fn load_metrics(repo_dir: &PathBuf) -> RepoMetrics {
     RepoMetrics::default()
 }
 
-async fn save_metrics(repo_dir: &PathBuf, metrics: &RepoMetrics) -> std::io::Result<()> {
+async fn save_metrics(repo_dir: &Path, metrics: &RepoMetrics) -> std::io::Result<()> {
     let path = repo_dir.join("metrics.json");
     let json = serde_json::to_string_pretty(metrics).unwrap();
     fs::write(path, json).await
@@ -185,7 +185,7 @@ async fn perform_backup(
     recipe_name: &str, 
     compress: bool, 
     metrics: &mut RepoMetrics,
-    repo_dir: &PathBuf,
+    repo_dir: &Path,
     tier: &str
 ) -> std::io::Result<()> {
     let path = Path::new(file);
@@ -284,7 +284,7 @@ async fn perform_backup(
         size_mb: metadata.len() as f64 / (1024.0 * 1024.0),
     });
     
-    save_metrics(repo_dir, &metrics).await?;
+    save_metrics(repo_dir, metrics).await?;
     
     let saved_mb = (dedup_chunks * BLOCK_SIZE) as f64 / (1024.0 * 1024.0);
     println!("{} Backup complete!", "✅".green().bold());
@@ -368,8 +368,6 @@ async fn main() -> std::io::Result<()> {
             
             let repo_dir = get_repo_dir().await;
             init_repo_if_needed(&repo_dir).await?;
-            let mut metrics = load_metrics(&repo_dir).await;
-
             let path = Path::new(&target_file);
             if !path.exists() {
                 println!("{} File not found: {}", "❌".red(), target_file);
@@ -386,18 +384,16 @@ async fn main() -> std::io::Result<()> {
             let mut last_backup = std::time::Instant::now();
             
             loop {
-                if let Ok(Ok(event)) = rx.recv() {
-                    if let notify::Event { kind: EventKind::Modify(_), .. } = event {
-                        if last_backup.elapsed() > Duration::from_secs(2) {
-                            let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
-                            let recipe_name = format!("{}_{}", path.file_name().unwrap().to_string_lossy(), timestamp);
-                            
-                            metrics = load_metrics(&repo_dir).await;
-                            perform_backup(&target_file, &recipe_name, use_compress, &mut metrics, &repo_dir, &license.tier).await?;
-                            last_backup = std::time::Instant::now();
-                            
-                            println!("{} Watching '{}' for changes in the background...", "👀".cyan().bold(), target_file.bold());
-                        }
+                if let Ok(Ok(notify::Event { kind: EventKind::Modify(_), .. })) = rx.recv() {
+                    if last_backup.elapsed() > Duration::from_secs(2) {
+                        let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+                        let recipe_name = format!("{}_{}", path.file_name().unwrap().to_string_lossy(), timestamp);
+
+                        let mut metrics = load_metrics(&repo_dir).await;
+                        perform_backup(&target_file, &recipe_name, use_compress, &mut metrics, &repo_dir, &license.tier).await?;
+                        last_backup = std::time::Instant::now();
+
+                        println!("{} Watching '{}' for changes in the background...", "👀".cyan().bold(), target_file.bold());
                     }
                 }
             }
