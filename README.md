@@ -16,6 +16,18 @@ Everything runs locally, so your data never leaves your machine.
 - **Exact restore:** Rebuild files byte-for-byte from lightweight recipe files.
 - **Works well with growing files:** Especially useful for logs, dumps, and repeated backups.
 
+## 🎯 Who is this for?
+
+Dedup CLI is a great fit for:
+
+- **DevOps engineers** managing logs and backup growth
+- **Backend developers** working with database dumps or repeated exports
+- **Developers with duplicate files** across multiple folders or projects
+- **Anyone building local backup workflows** without relying on cloud infrastructure
+- **People who want privacy-first tools** that keep all data on their own machine
+
+If your files change gradually over time, Dedup CLI can help you store far less data without making your workflow more complicated.
+
 ## 🛠 Installation
 
 You can test Dedup CLI quickly with Docker or build it locally from source.
