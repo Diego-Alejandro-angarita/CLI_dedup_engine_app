@@ -20,7 +20,11 @@ const FREE_MAX_FILE_SIZE: u64 = 300 * 1024 * 1024; // 300 MB
 const FREE_MAX_REPO_SIZE: u64 = 1024 * 1024 * 1024; // 1 GB
 
 #[derive(Parser)]
-#[command(name = "dedup-engine", about = "Smart Deduplication Backup CLI", version = "1.0")]
+#[command(
+    name = "dedup-engine",
+    about = "Smart Deduplication Backup CLI",
+    version = "1.0"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -98,6 +102,35 @@ fn compute_chunk_hash(buffer: &[u8]) -> String {
     format!("{:016x}", hash)
 }
 
+fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+
+    let value = bytes as f64;
+    if value < KB {
+        format!("{} B", bytes)
+    } else if value < MB {
+        format!("{:.1} KB", value / KB)
+    } else if value < GB {
+        format!("{:.2} MB", value / MB)
+    } else {
+        format!("{:.2} GB", value / GB)
+    }
+}
+
+fn format_usd(amount: f64) -> String {
+    if amount == 0.0 {
+        "$0.00".to_string()
+    } else if amount < 0.0001 {
+        format!("${:.6}", amount)
+    } else if amount < 0.01 {
+        format!("${:.4}", amount)
+    } else {
+        format!("${:.2}", amount)
+    }
+}
+
 fn get_global_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -114,7 +147,9 @@ async fn load_license() -> License {
             }
         }
     }
-    License { tier: "free".to_string() }
+    License {
+        tier: "free".to_string(),
+    }
 }
 
 async fn save_license(license: &License) -> std::io::Result<()> {
@@ -149,16 +184,24 @@ async fn get_repo_dir() -> PathBuf {
 
 async fn init_repo_if_needed(repo_dir: &PathBuf) -> std::io::Result<()> {
     if !repo_dir.exists() {
-        println!("{}", format!("No repository found at {:?}. Initializing...", repo_dir).yellow());
-        fs::create_dir_all(repo_dir.join("chunks")).await?;
-        fs::create_dir_all(repo_dir.join("recipes")).await?;
-        
-        let initial_metrics = RepoMetrics::default();
-        let metrics_json = serde_json::to_string_pretty(&initial_metrics).unwrap();
-        fs::write(repo_dir.join("metrics.json"), metrics_json).await?;
-        
+        println!(
+            "{}",
+            format!("No repository found at {:?}. Initializing...", repo_dir).yellow()
+        );
+        fs::create_dir_all(repo_dir).await?;
         println!("{} Repository created at {:?}", "✔".green(), repo_dir);
     }
+
+    fs::create_dir_all(repo_dir.join("chunks")).await?;
+    fs::create_dir_all(repo_dir.join("recipes")).await?;
+
+    let metrics_path = repo_dir.join("metrics.json");
+    if !metrics_path.exists() {
+        let initial_metrics = RepoMetrics::default();
+        let metrics_json = serde_json::to_string_pretty(&initial_metrics).unwrap();
+        fs::write(metrics_path, metrics_json).await?;
+    }
+
     Ok(())
 }
 
@@ -181,12 +224,12 @@ async fn save_metrics(repo_dir: &Path, metrics: &RepoMetrics) -> std::io::Result
 }
 
 async fn perform_backup(
-    file: &str, 
-    recipe_name: &str, 
-    compress: bool, 
+    file: &str,
+    recipe_name: &str,
+    compress: bool,
     metrics: &mut RepoMetrics,
     repo_dir: &Path,
-    tier: &str
+    tier: &str,
 ) -> std::io::Result<()> {
     let path = Path::new(file);
     if !path.exists() {
@@ -196,7 +239,7 @@ async fn perform_backup(
 
     let metadata = fs::metadata(&path).await?;
     let is_free = tier == "free";
-    
+
     if is_free && metadata.len() > FREE_MAX_FILE_SIZE {
         println!(
             "{} File too large ({} MB). Free plan is limited to 300MB per file. Upgrade to Pro/Team.",
@@ -207,20 +250,33 @@ async fn perform_backup(
     }
 
     if is_free && metrics.stored_bytes >= FREE_MAX_REPO_SIZE {
-        println!("{} Storage limit reached (1GB). Upgrade to Pro/Team for unlimited storage.", "❌".red());
+        println!(
+            "{} Storage limit reached (1GB). Upgrade to Pro/Team for unlimited storage.",
+            "❌".red()
+        );
         return Ok(());
     }
 
-    let recipe_path = repo_dir.join("recipes").join(format!("{}.recipe", recipe_name));
+    let recipe_path = repo_dir
+        .join("recipes")
+        .join(format!("{}.recipe", recipe_name));
 
     let mut source_file = File::open(&path).await?;
     let mut recipe_file = File::create(&recipe_path).await?;
+    recipe_file
+        .write_all(format!("SIZE:{}\n", metadata.len()).as_bytes())
+        .await?;
 
     let mut buffer = [0u8; BLOCK_SIZE];
     let mut new_chunks = 0;
     let mut dedup_chunks = 0;
 
-    println!("\n{} Backing up '{}' as '{}'...", "🚀".cyan().bold(), file.bold(), recipe_name.bold());
+    println!(
+        "\n{} Backing up '{}' as '{}'...",
+        "🚀".cyan().bold(),
+        file.bold(),
+        recipe_name.bold()
+    );
 
     let pb = ProgressBar::new(metadata.len());
     pb.set_style(
@@ -246,12 +302,19 @@ async fn perform_backup(
         }
 
         let hash_str = compute_chunk_hash(&chunk_data);
-        
-        let chunk_file_name = if compress { format!("{}.zst", hash_str) } else { hash_str.clone() };
+
+        let chunk_file_name = if compress {
+            format!("{}.zst", hash_str)
+        } else {
+            hash_str.clone()
+        };
         let chunk_path = repo_dir.join("chunks").join(&chunk_file_name);
 
         let exists_uncompressed = repo_dir.join("chunks").join(&hash_str).exists();
-        let exists_compressed = repo_dir.join("chunks").join(format!("{}.zst", hash_str)).exists();
+        let exists_compressed = repo_dir
+            .join("chunks")
+            .join(format!("{}.zst", hash_str))
+            .exists();
 
         if exists_uncompressed || exists_compressed {
             dedup_chunks += 1;
@@ -265,9 +328,12 @@ async fn perform_backup(
             fs::write(&chunk_path, &final_data).await?;
             metrics.stored_bytes += final_data.len() as u64;
             new_chunks += 1;
-            
+
             if is_free && metrics.stored_bytes >= FREE_MAX_REPO_SIZE {
-                println!("{} Storage limit reached mid-backup! Upgrade to Pro.", "❌".red());
+                println!(
+                    "{} Storage limit reached mid-backup! Upgrade to Pro.",
+                    "❌".red()
+                );
                 break;
             }
         }
@@ -277,23 +343,27 @@ async fn perform_backup(
     }
 
     pb.finish_and_clear();
-    
+
     metrics.history.push(BackupRecord {
         timestamp: Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         recipe: recipe_name.to_string(),
         size_mb: metadata.len() as f64 / (1024.0 * 1024.0),
     });
-    
+
     save_metrics(repo_dir, metrics).await?;
-    
-    let saved_mb = (dedup_chunks * BLOCK_SIZE) as f64 / (1024.0 * 1024.0);
+
+    let saved_bytes = (dedup_chunks * BLOCK_SIZE) as u64;
     println!("{} Backup complete!", "✅".green().bold());
-    
+
     let mut table = Table::new();
     table
         .set_header(vec![
-            Cell::new("Metric").add_attribute(Attribute::Bold).fg(Color::Cyan),
-            Cell::new("Value").add_attribute(Attribute::Bold).fg(Color::Cyan),
+            Cell::new("Metric")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Cyan),
+            Cell::new("Value")
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Cyan),
         ])
         .add_row(vec![
             Cell::new("New chunks"),
@@ -305,7 +375,9 @@ async fn perform_backup(
         ])
         .add_row(vec![
             Cell::new("Space Saved"),
-            Cell::new(format!("{:.2} MB", saved_mb)).add_attribute(Attribute::Bold).fg(Color::Green),
+            Cell::new(format_bytes(saved_bytes))
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Green),
         ]);
     println!("\n{table}");
 
@@ -314,16 +386,6 @@ async fn perform_backup(
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // Print ASCII Banner
-    println!("{}", r#"
-    ____           __             ______            _          
-   / __ \___  ____/ /_  ______   / ____/___  ____ _(_)___  ___ 
-  / / / / _ \/ __  / / / / __ \ / __/ / __ \/ __ `/ / __ \/ _ \
- / /_/ /  __/ /_/ / /_/ / /_/ // /___/ / / / /_/ / / / / /  __/
-/_____/\___/\__,_/\__,_/ .___//_____/_/ /_/\__, /_/_/ /_/\___/ 
-                      /_/                 /____/               
-"#.cyan().bold());
-
     let cli = Cli::parse();
     let license = load_license().await;
     let config = load_project_config().await;
@@ -331,7 +393,10 @@ async fn main() -> std::io::Result<()> {
     // Reject non-team users trying to use custom repos (dedup.json path)
     if let Some(ref cfg) = config {
         if cfg.path.is_some() && license.tier != "team" {
-            println!("{} Custom repository isolation requires the Team plan.", "🔒".bright_red());
+            println!(
+                "{} Custom repository isolation requires the Team plan.",
+                "🔒".bright_red()
+            );
             println!("Please authenticate with a Team license.");
             return Ok(());
         }
@@ -342,11 +407,21 @@ async fn main() -> std::io::Result<()> {
             let mut new_lic = load_license().await;
             if key.starts_with("TEAM-") {
                 new_lic.tier = "team".to_string();
-                println!("{} Team License '{}' authenticated successfully!", "✅".green().bold(), key);
-                println!("You have access to isolated repos, history, compression, and watch mode.");
+                println!(
+                    "{} Team License '{}' authenticated successfully!",
+                    "✅".green().bold(),
+                    key
+                );
+                println!(
+                    "You have access to isolated repos, history, compression, and watch mode."
+                );
             } else if key.starts_with("PRO-") {
                 new_lic.tier = "pro".to_string();
-                println!("{} Pro License '{}' authenticated successfully!", "✅".green().bold(), key);
+                println!(
+                    "{} Pro License '{}' authenticated successfully!",
+                    "✅".green().bold(),
+                    key
+                );
                 println!("You have access to unlimited storage, compression, and watch mode.");
             } else {
                 println!("{} Invalid license key format.", "❌".red());
@@ -356,7 +431,10 @@ async fn main() -> std::io::Result<()> {
         }
         Commands::Watch { file, compress } => {
             if license.tier == "free" {
-                println!("{} Watch feature requires Pro/Team version.", "🔒".bright_red());
+                println!(
+                    "{} Watch feature requires Pro/Team version.",
+                    "🔒".bright_red()
+                );
                 return Ok(());
             }
 
@@ -364,8 +442,9 @@ async fn main() -> std::io::Result<()> {
                 .or_else(|| config.as_ref().and_then(|c| c.target.clone()))
                 .expect("Must specify a file to watch or have a 'target' in dedup.json");
 
-            let use_compress = compress || config.as_ref().and_then(|c| c.compression).unwrap_or(false);
-            
+            let use_compress =
+                compress || config.as_ref().and_then(|c| c.compression).unwrap_or(false);
+
             let repo_dir = get_repo_dir().await;
             init_repo_if_needed(&repo_dir).await?;
             let path = Path::new(&target_file);
@@ -378,30 +457,58 @@ async fn main() -> std::io::Result<()> {
             let mut watcher = notify::recommended_watcher(tx).unwrap();
             watcher.watch(path, RecursiveMode::NonRecursive).unwrap();
 
-            println!("{} Watching '{}' for changes in the background...", "👀".cyan().bold(), target_file.bold());
+            println!(
+                "{} Watching '{}' for changes in the background...",
+                "👀".cyan().bold(),
+                target_file.bold()
+            );
             println!("Press Ctrl+C to stop.");
 
             let mut last_backup = std::time::Instant::now();
-            
+
             loop {
-                if let Ok(Ok(notify::Event { kind: EventKind::Modify(_), .. })) = rx.recv() {
+                if let Ok(Ok(notify::Event {
+                    kind: EventKind::Modify(_),
+                    ..
+                })) = rx.recv()
+                {
                     if last_backup.elapsed() > Duration::from_secs(2) {
                         let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
-                        let recipe_name = format!("{}_{}", path.file_name().unwrap().to_string_lossy(), timestamp);
+                        let recipe_name = format!(
+                            "{}_{}",
+                            path.file_name().unwrap().to_string_lossy(),
+                            timestamp
+                        );
 
                         let mut metrics = load_metrics(&repo_dir).await;
-                        perform_backup(&target_file, &recipe_name, use_compress, &mut metrics, &repo_dir, &license.tier).await?;
+                        perform_backup(
+                            &target_file,
+                            &recipe_name,
+                            use_compress,
+                            &mut metrics,
+                            &repo_dir,
+                            &license.tier,
+                        )
+                        .await?;
                         last_backup = std::time::Instant::now();
 
-                        println!("{} Watching '{}' for changes in the background...", "👀".cyan().bold(), target_file.bold());
+                        println!(
+                            "{} Watching '{}' for changes in the background...",
+                            "👀".cyan().bold(),
+                            target_file.bold()
+                        );
                     }
                 }
             }
         }
         Commands::Backup { file, compress } => {
-            let use_compress = compress || config.as_ref().and_then(|c| c.compression).unwrap_or(false);
+            let use_compress =
+                compress || config.as_ref().and_then(|c| c.compression).unwrap_or(false);
             if use_compress && license.tier == "free" {
-                println!("{} Compression feature requires Pro/Team version.", "🔒".bright_red());
+                println!(
+                    "{} Compression feature requires Pro/Team version.",
+                    "🔒".bright_red()
+                );
                 return Ok(());
             }
 
@@ -415,20 +522,35 @@ async fn main() -> std::io::Result<()> {
 
             let path = Path::new(&target_file);
             let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
-            let recipe_name = format!("{}_{}", path.file_name().unwrap().to_string_lossy(), timestamp);
-            
-            perform_backup(&target_file, &recipe_name, use_compress, &mut metrics, &repo_dir, &license.tier).await?;
+            let recipe_name = format!(
+                "{}_{}",
+                path.file_name().unwrap().to_string_lossy(),
+                timestamp
+            );
+
+            perform_backup(
+                &target_file,
+                &recipe_name,
+                use_compress,
+                &mut metrics,
+                &repo_dir,
+                &license.tier,
+            )
+            .await?;
         }
-        Commands::Restore { recipe, destination } => {
+        Commands::Restore {
+            recipe,
+            destination,
+        } => {
             let repo_dir = get_repo_dir().await;
             init_repo_if_needed(&repo_dir).await?;
-            
+
             let recipe_filename = if recipe.ends_with(".recipe") {
                 recipe.clone()
             } else {
                 format!("{}.recipe", recipe)
             };
-            
+
             let recipe_path = repo_dir.join("recipes").join(&recipe_filename);
 
             if !recipe_path.exists() {
@@ -437,11 +559,25 @@ async fn main() -> std::io::Result<()> {
             }
 
             let recipe_content = fs::read_to_string(&recipe_path).await?;
-            let hashes: Vec<&str> = recipe_content.lines().filter(|l| !l.is_empty()).collect();
+            let mut recipe_lines = recipe_content.lines().filter(|l| !l.is_empty());
+            let first_line = recipe_lines.next();
+            let original_size = first_line
+                .and_then(|line| line.strip_prefix("SIZE:"))
+                .and_then(|size| size.parse::<u64>().ok());
+            let hashes: Vec<&str> = match (original_size, first_line) {
+                (Some(_), _) => recipe_lines.collect(),
+                (None, Some(line)) => std::iter::once(line).chain(recipe_lines).collect(),
+                (None, None) => Vec::new(),
+            };
             let num_hashes = hashes.len();
+            let mut restored_bytes = 0u64;
 
             let mut dest_file = File::create(&destination).await?;
-            println!("\n{} Restoring to '{}'...", "📥".cyan().bold(), destination.bold());
+            println!(
+                "\n{} Restoring to '{}'...",
+                "📥".cyan().bold(),
+                destination.bold()
+            );
 
             let pb = ProgressBar::new(num_hashes as u64);
             pb.set_style(
@@ -455,7 +591,7 @@ async fn main() -> std::io::Result<()> {
             for (i, hash) in hashes.iter().enumerate() {
                 let chunk_path = repo_dir.join("chunks").join(hash);
                 let zst_path = repo_dir.join("chunks").join(format!("{}.zst", hash));
-                
+
                 let mut chunk_data = if zst_path.exists() {
                     let compressed = fs::read(&zst_path).await?;
                     zstd::stream::decode_all(Cursor::new(compressed))?
@@ -463,9 +599,22 @@ async fn main() -> std::io::Result<()> {
                     fs::read(&chunk_path).await?
                 } else {
                     pb.finish_and_clear();
-                    println!("{} Corrupted backup: Missing chunk {}", "❌".red().bold(), hash);
+                    println!(
+                        "{} Corrupted backup: Missing chunk {}",
+                        "❌".red().bold(),
+                        hash
+                    );
                     return Ok(());
                 };
+
+                if let Some(total_size) = original_size {
+                    let remaining = total_size.saturating_sub(restored_bytes);
+                    let write_len = remaining.min(chunk_data.len() as u64) as usize;
+                    dest_file.write_all(&chunk_data[..write_len]).await?;
+                    restored_bytes += write_len as u64;
+                    pb.inc(1);
+                    continue;
+                }
 
                 if i == num_hashes - 1 {
                     while chunk_data.last() == Some(&0) {
@@ -502,7 +651,7 @@ async fn main() -> std::io::Result<()> {
                 Cell::new("Recipe Name").fg(Color::Cyan),
                 Cell::new("Original Size").fg(Color::Cyan),
             ]);
-            
+
             for record in metrics.history.iter().rev() {
                 hist_table.add_row(vec![
                     Cell::new(&record.timestamp),
@@ -517,11 +666,12 @@ async fn main() -> std::io::Result<()> {
             let repo_dir = get_repo_dir().await;
             init_repo_if_needed(&repo_dir).await?;
             let metrics = load_metrics(&repo_dir).await;
-            
+
             let repo_mb = metrics.stored_bytes as f64 / (1024.0 * 1024.0);
             let saved_bytes = metrics.logical_bytes.saturating_sub(metrics.stored_bytes);
+            let saved_mb = saved_bytes as f64 / (1024.0 * 1024.0);
             let saved_gb = saved_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-            
+
             let pct = if metrics.logical_bytes > 0 {
                 (saved_bytes as f64 / metrics.logical_bytes as f64 * 100.0) as u64
             } else {
@@ -531,8 +681,12 @@ async fn main() -> std::io::Result<()> {
             let mut table = Table::new();
             table
                 .set_header(vec![
-                    Cell::new("Metric").add_attribute(Attribute::Bold).fg(Color::Cyan),
-                    Cell::new("Value").add_attribute(Attribute::Bold).fg(Color::Cyan),
+                    Cell::new("Metric")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Cyan),
+                    Cell::new("Value")
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Cyan),
                 ])
                 .add_row(vec![
                     Cell::new("Active Repository"),
@@ -544,21 +698,33 @@ async fn main() -> std::io::Result<()> {
                 ])
                 .add_row(vec![
                     Cell::new("Space saved"),
-                    Cell::new(format!("{:.1} GB ({}%)", saved_gb, pct)).fg(Color::Green),
+                    Cell::new(format!("{:.2} MB ({}%)", saved_mb, pct)).fg(Color::Green),
                 ]);
 
             println!("\n{}", "📊 Repository Statistics".bold().cyan());
             println!("{table}");
 
             if license.tier != "free" {
-                let usd_saved = saved_gb * 0.10; 
+                let usd_saved = saved_gb * 0.10;
                 println!("\n{}", "💎 Premium Statistics".bold().magenta());
-                println!("Financial Savings: ${:.2} USD (estimated at $0.10/GB)", usd_saved);
+                println!(
+                    "Financial Savings: {} USD (estimated at $0.10/GB)",
+                    format_usd(usd_saved)
+                );
             } else if repo_mb > 800.0 {
-                println!("\n{} {}", "⚠".yellow().bold(), "You are approaching the free plan limit".yellow());
+                println!(
+                    "\n{} {}",
+                    "⚠".yellow().bold(),
+                    "You are approaching the free plan limit".yellow()
+                );
                 println!("{}", "Upgrade to Pro/Team for unlimited storage".italic());
             } else {
-                println!("\n{}", "✨ Upgrade to Pro/Team for unlimited storage and compression".italic().dimmed());
+                println!(
+                    "\n{}",
+                    "✨ Upgrade to Pro/Team for unlimited storage and compression"
+                        .italic()
+                        .dimmed()
+                );
             }
         }
     }
